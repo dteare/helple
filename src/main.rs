@@ -2,6 +2,7 @@ use std::io::BufRead;
 use std::{fmt, fs::File, io};
 
 struct Puzzle {
+    #[allow(dead_code)]
     guesses: Vec<String>,
     assignments: Vec<Assignment>,
     dictionary: Vec<String>,
@@ -45,7 +46,7 @@ impl Puzzle {
     }
 
     fn is_permitted_word(&self, word: &String) -> bool {
-        let debug = *word == "CRONK".to_string();
+        let debug = false; // *word == "CRONK".to_string();
         for a in &self.assignments {
             if debug {
                 println!("Looking at rule {:?}", a);
@@ -88,17 +89,35 @@ impl Puzzle {
     }
 
     fn suggest_word(&self) -> Option<String> {
+        #[derive(Debug)]
+        struct Suggestion {
+            score: usize,
+            word: String,
+        }
+
         if self.assignments.len() == 0 {
             return Some("rusty".to_string());
         }
 
+        let mut permitted: Vec<Suggestion> = Vec::new();
         for word in &self.dictionary {
             if self.is_permitted_word(&word) {
-                return Some(word.clone());
+                let score = score_for_potential_guess(word);
+                permitted.push(Suggestion {
+                    score,
+                    word: word.clone(),
+                });
             }
         }
 
-        None
+        permitted.sort_by(|a, b| a.score.cmp(&b.score));
+
+        println!("Suggestions sorted by score:\n{:?}", permitted);
+
+        match permitted.pop() {
+            Some(suggestion) => Some(suggestion.word.clone()),
+            None => None,
+        }
     }
 
     fn assign_letter(&mut self, letter: char, position: usize, status: LetterStatus) {
@@ -110,15 +129,37 @@ impl Puzzle {
     }
 }
 
+/// When guessing a word, we want to "pin" and elimiate letters as fast as possible. Priorty is given to words that use the most unique letters. Further priority is given to words with the most vowels.
+fn score_for_potential_guess(word: &String) -> usize {
+    use unicode_segmentation::UnicodeSegmentation;
+    let mut score = 100;
+
+    for grapheme in word.graphemes(true) {
+        let count = word.matches(grapheme).collect::<String>().len();
+        if count > 1 {
+            score -= count * 2
+        }
+
+        let vowels = "AEIOUY"
+            .to_string()
+            .matches(grapheme)
+            .collect::<String>()
+            .len();
+        score += vowels;
+    }
+
+    score
+}
+
 impl fmt::Display for Puzzle {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut display = "TODO".to_string();
+        let display = "TODO".to_string();
 
         write!(f, "{}", display)
     }
 }
 fn main() -> Result<(), std::io::Error> {
-    let mut puzzle = Puzzle::setup();
+    let puzzle = Puzzle::setup();
     let suggestion = puzzle.suggest_word();
 
     println!("Suggested word: {:?}", suggestion);
@@ -131,7 +172,28 @@ mod test {
     use super::*;
 
     #[test]
-    fn baby_steps() {
+    fn scores() {
+        fn assert_score_better_than(better: &str, lesser: &str) {
+            let better_score = score_for_potential_guess(&better.to_string());
+            let lesser_score = score_for_potential_guess(&lesser.to_string());
+
+            assert!(
+                better_score > lesser_score,
+                "Score of {} ({}) expected to be higher than {} ({})",
+                better,
+                better_score,
+                lesser,
+                lesser_score
+            );
+        }
+
+        assert_eq!(102, score_for_potential_guess(&"RUSTY".to_string()));
+        assert_score_better_than("RUSTY", "GREEN");
+        assert_score_better_than("AEIOU", "RUSTY");
+    }
+
+    #[test]
+    fn jan_11() {
         let mut puzzle = super::Puzzle::setup();
 
         assert_eq!("rusty", puzzle.suggest_word().unwrap());
@@ -162,6 +224,36 @@ mod test {
         suggestion = puzzle.suggest_word().unwrap();
 
         assert_eq!("DRINK".to_string(), suggestion);
+
+        println!("Suggestion: {}", suggestion);
+    }
+
+    #[test]
+    fn jan_12() {
+        let mut puzzle = super::Puzzle::setup();
+
+        assert_eq!("rusty", puzzle.suggest_word().unwrap());
+
+        puzzle.assign_letter('R', 0, LetterStatus::WrongSpot);
+        puzzle.assign_letter('U', 0, LetterStatus::NotInWord);
+        puzzle.assign_letter('S', 0, LetterStatus::NotInWord);
+        puzzle.assign_letter('T', 0, LetterStatus::NotInWord);
+        puzzle.assign_letter('Y', 0, LetterStatus::NotInWord);
+        assert_eq!(false, puzzle.is_permitted_word(&"RUSTY".to_string()));
+        assert_eq!(true, puzzle.is_permitted_word(&"GREEN".to_string()));
+
+        let mut suggestion = puzzle.suggest_word().unwrap();
+
+        assert_eq!(suggestion, "VIREO");
+        puzzle.assign_letter('V', 0, LetterStatus::WrongSpot);
+        puzzle.assign_letter('I', 0, LetterStatus::NotInWord);
+        puzzle.assign_letter('R', 0, LetterStatus::WrongSpot);
+        puzzle.assign_letter('E', 0, LetterStatus::NotInWord);
+        puzzle.assign_letter('O', 0, LetterStatus::WrongSpot);
+
+        suggestion = puzzle.suggest_word().unwrap();
+
+        // FAVOR
 
         println!("Suggestion: {}", suggestion);
     }
