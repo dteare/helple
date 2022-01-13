@@ -27,6 +27,7 @@ impl Puzzle {
         println!(">parse");
 
         let mut dictionary: Vec<String> = Vec::new();
+        let input = File::open("./support/less-words").unwrap();
 
         for word_result in io::BufReader::new(input).lines() {
             let word = word_result.unwrap();
