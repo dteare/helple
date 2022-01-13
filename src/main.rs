@@ -1,5 +1,6 @@
 use std::io::BufRead;
 use std::{fmt, fs::File, io};
+use unicode_segmentation::UnicodeSegmentation;
 
 struct Puzzle {
     #[allow(dead_code)]
@@ -8,13 +9,13 @@ struct Puzzle {
     dictionary: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Assignment {
     letter: char,
     position: usize,
     status: LetterStatus,
 }
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum LetterStatus {
     Correct,
     WrongSpot,
@@ -26,7 +27,6 @@ impl Puzzle {
         println!(">parse");
 
         let mut dictionary: Vec<String> = Vec::new();
-        let input = File::open("./support/words").unwrap();
 
         for word_result in io::BufReader::new(input).lines() {
             let word = word_result.unwrap();
@@ -43,6 +43,35 @@ impl Puzzle {
             assignments: vec![],
             dictionary,
         }
+    }
+
+    fn solution(&self) -> Option<String> {
+        let mut correct_letters: Vec<char> = Vec::new();
+
+        let mut correct_assignments: Vec<&Assignment> = self
+            .assignments
+            .iter()
+            .filter(|a| a.status == LetterStatus::Correct)
+            .clone()
+            .collect();
+        correct_assignments.sort_by(|a, b| a.position.cmp(&b.position));
+
+        assert!(
+            correct_assignments.len() <= 5, // TODO: use real length depending on game
+            "Found {} 'correct' letters assigned. self.assignments={:?}",
+            correct_letters.len(),
+            self.assignments
+        );
+
+        if correct_assignments.len() != 5 {
+            return None;
+        }
+
+        for a in &correct_assignments {
+            correct_letters.push(a.letter);
+        }
+
+        Some(correct_letters.iter().collect())
     }
 
     fn is_permitted_word(&self, word: &String) -> bool {
@@ -96,7 +125,7 @@ impl Puzzle {
         }
 
         if self.assignments.len() == 0 {
-            return Some("rusty".to_string());
+            return Some("RUSTY".to_string());
         }
 
         let mut permitted: Vec<Suggestion> = Vec::new();
@@ -112,26 +141,30 @@ impl Puzzle {
 
         permitted.sort_by(|a, b| a.score.cmp(&b.score));
 
-        println!("Suggestions sorted by score:\n{:?}", permitted);
+        // println!("Suggestions sorted by score:\n{:?}", permitted);
 
         match permitted.pop() {
-            Some(suggestion) => Some(suggestion.word.clone()),
+            Some(suggestion) => Some(suggestion.word.to_uppercase()),
             None => None,
         }
     }
 
     fn assign_letter(&mut self, letter: char, position: usize, status: LetterStatus) {
-        self.assignments.push(Assignment {
+        let a = Assignment {
             letter,
             position,
             status,
-        })
+        };
+
+        // Only add restrictions we aren't already aware of
+        if !self.assignments.contains(&a) {
+            self.assignments.push(a);
+        }
     }
 }
 
 /// When guessing a word, we want to "pin" and elimiate letters as fast as possible. Priorty is given to words that use the most unique letters. Further priority is given to words with the most vowels.
 fn score_for_potential_guess(word: &String) -> usize {
-    use unicode_segmentation::UnicodeSegmentation;
     let mut score = 100;
 
     for grapheme in word.graphemes(true) {
@@ -159,10 +192,70 @@ impl fmt::Display for Puzzle {
     }
 }
 fn main() -> Result<(), std::io::Error> {
-    let puzzle = Puzzle::setup();
-    let suggestion = puzzle.suggest_word();
+    let mut puzzle = Puzzle::setup();
+    let mut buffer = String::new();
+    let stdin = io::stdin();
 
-    println!("Suggested word: {:?}", suggestion);
+    loop {
+        let suggestion = puzzle.suggest_word();
+
+        match suggestion {
+            Some(word) => {
+                println!("Go type <{:?}> into the puzzle. What was the result?", word);
+
+                stdin.read_line(&mut buffer)?;
+                let input = buffer.trim().clone();
+
+                let letters: Vec<&str> = word.graphemes(true).collect();
+
+                for (i, grapheme) in input.graphemes(true).enumerate() {
+                    match grapheme {
+                        "X" => {
+                            // Direct hit!
+                            puzzle.assign_letter(
+                                letters[i].as_bytes()[0] as char,
+                                i,
+                                LetterStatus::Correct,
+                            );
+                        }
+                        "." => {
+                            // Partial hit
+                            puzzle.assign_letter(
+                                letters[i].as_bytes()[0] as char,
+                                i,
+                                LetterStatus::WrongSpot,
+                            );
+                        }
+                        "-" => {
+                            // Complete miss
+                            puzzle.assign_letter(
+                                letters[i].as_bytes()[0] as char,
+                                i,
+                                LetterStatus::NotInWord,
+                            );
+                        }
+                        _ => {
+                            println!("Unexpected <{}> in input at character {}.", grapheme, i);
+                            println!(
+                                r#"Expected format for puzzle results:
+    `X` = direct hit (right letter in right position
+    `.` = partial hit (right letter in wrong position)
+    `-` = complete miss (letter not in word)"#
+                            );
+                        }
+                    }
+                }
+
+                buffer.clear();
+            }
+            None => break,
+        }
+
+        if let Some(solution) = puzzle.solution() {
+            println!("Puzzle solved using {}! 🙌 Share your score. 😘", solution);
+            break;
+        }
+    }
 
     Ok(())
 }
@@ -190,6 +283,53 @@ mod test {
         assert_eq!(102, score_for_potential_guess(&"RUSTY".to_string()));
         assert_score_better_than("RUSTY", "GREEN");
         assert_score_better_than("AEIOU", "RUSTY");
+    }
+
+    #[test]
+    fn solution() {
+        let mut puzzle = super::Puzzle::setup();
+
+        assert_eq!(None, puzzle.solution());
+
+        puzzle.assign_letter('R', 0, LetterStatus::NotInWord);
+        puzzle.assign_letter('U', 1, LetterStatus::NotInWord);
+        puzzle.assign_letter('S', 2, LetterStatus::NotInWord);
+        puzzle.assign_letter('T', 3, LetterStatus::NotInWord);
+        puzzle.assign_letter('Y', 4, LetterStatus::Correct);
+
+        assert_eq!(None, puzzle.solution());
+
+        puzzle.assign_letter('Z', 0, LetterStatus::NotInWord);
+        puzzle.assign_letter('A', 1, LetterStatus::WrongSpot);
+        puzzle.assign_letter('I', 2, LetterStatus::NotInWord);
+        puzzle.assign_letter('D', 3, LetterStatus::NotInWord);
+        puzzle.assign_letter('Y', 4, LetterStatus::Correct);
+
+        assert_eq!(None, puzzle.solution());
+
+        puzzle.assign_letter('V', 0, LetterStatus::NotInWord);
+        puzzle.assign_letter('E', 1, LetterStatus::WrongSpot);
+        puzzle.assign_letter('A', 2, LetterStatus::WrongSpot);
+        puzzle.assign_letter('L', 3, LetterStatus::NotInWord);
+        puzzle.assign_letter('Y', 4, LetterStatus::Correct);
+
+        assert_eq!(None, puzzle.solution());
+
+        puzzle.assign_letter('E', 0, LetterStatus::WrongSpot);
+        puzzle.assign_letter('M', 1, LetterStatus::NotInWord);
+        puzzle.assign_letter('B', 2, LetterStatus::Correct);
+        puzzle.assign_letter('A', 3, LetterStatus::WrongSpot);
+        puzzle.assign_letter('Y', 4, LetterStatus::Correct);
+
+        assert_eq!(None, puzzle.solution());
+
+        puzzle.assign_letter('A', 0, LetterStatus::Correct);
+        puzzle.assign_letter('B', 1, LetterStatus::Correct);
+        puzzle.assign_letter('B', 2, LetterStatus::Correct);
+        puzzle.assign_letter('E', 3, LetterStatus::Correct);
+        puzzle.assign_letter('Y', 4, LetterStatus::Correct);
+
+        assert_eq!(Some("ABBEY".to_string()), puzzle.solution());
     }
 
     #[test]
