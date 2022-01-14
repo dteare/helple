@@ -4,7 +4,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 struct Puzzle {
     #[allow(dead_code)]
-    guesses: Vec<String>,
+    guesses: Vec<(String, Vec<LetterStatus>)>,
     assignments: Vec<Assignment>,
     dictionary: Vec<String>,
 }
@@ -150,6 +150,7 @@ impl Puzzle {
         }
     }
 
+    #[allow(dead_code)]
     fn assign_letter(&mut self, letter: char, position: usize, status: LetterStatus) {
         let a = Assignment {
             letter,
@@ -161,6 +162,61 @@ impl Puzzle {
         if !self.assignments.contains(&a) {
             self.assignments.push(a);
         }
+    }
+
+    fn assign_guess_results(&mut self, word: String, letter_statuses: Vec<LetterStatus>) {
+        assert!(
+            word.len() == letter_statuses.len(),
+            "Guessed word <{}> length must match letter statuses exactly: <{:?}>",
+            word,
+            letter_statuses
+        );
+
+        for (i, byte) in word.as_bytes().iter().enumerate() {
+            let a = Assignment {
+                letter: *byte as char,
+                position: i,
+                status: letter_statuses[i],
+            };
+
+            // Only add restrictions we aren't already aware of
+            if !self.assignments.contains(&a) {
+                self.assignments.push(a);
+            }
+        }
+
+        self.guesses.push((word.to_string(), letter_statuses));
+    }
+
+    fn assign_guess_from_cli(&mut self, word: String, input: &str) {
+        let mut letter_statuses: Vec<LetterStatus> = Vec::new();
+
+        for (i, grapheme) in input.graphemes(true).enumerate() {
+            let letter_status = match grapheme {
+                "X" => Some(LetterStatus::Correct),
+                "." => {
+                    // Partial hit
+                    Some(LetterStatus::WrongSpot)
+                }
+                "-" => Some(LetterStatus::NotInWord),
+                _ => None,
+            };
+
+            if let Some(status) = letter_status {
+                letter_statuses.push(status);
+            } else {
+                println!("Unexpected <{}> in input at character {}.", grapheme, i);
+                println!(
+                    r#"Expected format for puzzle results:
+`X` = direct hit (right letter in right position
+`.` = partial hit (right letter in wrong position)
+`-` = complete miss (letter not in word)"#
+                );
+                return;
+            }
+        }
+
+        self.assign_guess_results(word, letter_statuses);
     }
 }
 
@@ -187,11 +243,31 @@ fn score_for_potential_guess(word: &String) -> usize {
 
 impl fmt::Display for Puzzle {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let display = "TODO".to_string();
+        let mut display = "".to_string();
+
+        for (_word, statuses) in &self.guesses {
+            for s in statuses {
+                display.push_str(format!("{}", s).as_str());
+            }
+            display.push_str("\n");
+        }
 
         write!(f, "{}", display)
     }
 }
+
+impl fmt::Display for LetterStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            &LetterStatus::Correct => "🟩",
+            &LetterStatus::WrongSpot => "🟨",
+            &LetterStatus::NotInWord => "⬜",
+        };
+
+        write!(f, "{}", s)
+    }
+}
+
 fn main() -> Result<(), std::io::Error> {
     let mut puzzle = Puzzle::setup();
     let mut buffer = String::new();
@@ -207,49 +283,14 @@ fn main() -> Result<(), std::io::Error> {
                 stdin.read_line(&mut buffer)?;
                 let input = buffer.trim().clone();
 
-                let letters: Vec<&str> = word.graphemes(true).collect();
-
-                for (i, grapheme) in input.graphemes(true).enumerate() {
-                    match grapheme {
-                        "X" => {
-                            // Direct hit!
-                            puzzle.assign_letter(
-                                letters[i].as_bytes()[0] as char,
-                                i,
-                                LetterStatus::Correct,
-                            );
-                        }
-                        "." => {
-                            // Partial hit
-                            puzzle.assign_letter(
-                                letters[i].as_bytes()[0] as char,
-                                i,
-                                LetterStatus::WrongSpot,
-                            );
-                        }
-                        "-" => {
-                            // Complete miss
-                            puzzle.assign_letter(
-                                letters[i].as_bytes()[0] as char,
-                                i,
-                                LetterStatus::NotInWord,
-                            );
-                        }
-                        _ => {
-                            println!("Unexpected <{}> in input at character {}.", grapheme, i);
-                            println!(
-                                r#"Expected format for puzzle results:
-    `X` = direct hit (right letter in right position
-    `.` = partial hit (right letter in wrong position)
-    `-` = complete miss (letter not in word)"#
-                            );
-                        }
-                    }
-                }
-
+                puzzle.assign_guess_from_cli(word, input);
+                println!("{}", puzzle);
                 buffer.clear();
             }
-            None => break,
+            None => {
+                println!("No suggestion available. 💥");
+                break;
+            }
         }
 
         if let Some(solution) = puzzle.solution() {
@@ -397,5 +438,65 @@ mod test {
         // FAVOR
 
         println!("Suggestion: {}", suggestion);
+    }
+
+    #[test]
+    fn jan_14() {
+        let mut puzzle = super::Puzzle::setup();
+
+        puzzle.assign_guess_results(
+            "RUSTY".to_string(),
+            vec![
+                LetterStatus::NotInWord,
+                LetterStatus::NotInWord,
+                LetterStatus::NotInWord,
+                LetterStatus::WrongSpot,
+                LetterStatus::Correct,
+            ],
+        );
+
+        let mut suggestion = puzzle.suggest_word();
+
+        puzzle.assign_guess_results(
+            "TONEY".to_string(),
+            vec![
+                LetterStatus::Correct,
+                LetterStatus::NotInWord,
+                LetterStatus::Correct,
+                LetterStatus::NotInWord,
+                LetterStatus::Correct,
+            ],
+        );
+
+        suggestion = puzzle.suggest_word();
+
+        puzzle.assign_guess_results(
+            "TANKY".to_string(),
+            vec![
+                LetterStatus::Correct,
+                LetterStatus::Correct,
+                LetterStatus::Correct,
+                LetterStatus::NotInWord,
+                LetterStatus::Correct,
+            ],
+        );
+
+        suggestion = puzzle.suggest_word();
+
+        puzzle.assign_guess_results(
+            "TANGY".to_string(),
+            vec![
+                LetterStatus::Correct,
+                LetterStatus::Correct,
+                LetterStatus::Correct,
+                LetterStatus::Correct,
+                LetterStatus::Correct,
+            ],
+        );
+
+        suggestion = puzzle.suggest_word();
+
+        assert_eq!(None, suggestion);
+        assert_eq!(puzzle.solution(), Some("TANGY".to_string()));
     }
 }
