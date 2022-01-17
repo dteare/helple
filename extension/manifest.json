@@ -8,6 +8,10 @@
     "service_worker": "background.js"
   },
 
+  "permissions": [
+    "activeTab", "declarativeContent", "scripting"
+  ],
+
   "content_scripts": [
     {
       "matches": ["https://www.powerlanguage.co.uk/wordle/"],
@@ -18,5 +22,14 @@
   "web_accessible_resources": [{
     "resources": ["helple_bg.wasm"],
     "matches": ["https://www.powerlanguage.co.uk/*"]
-  }]
+  }],
+
+  "action": {
+    "title": "Helple puzzle solver",
+    "default_icon": {
+      "16": "icons/action-16.png",
+      "24": "icons/action-24.png",
+      "32": "icons/action-32.png"
+    }
+  }
 }
