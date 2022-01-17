@@ -4,4 +4,15 @@ Provides suggestions for [Wordle](https://www.powerlanguage.co.uk/wordle/).
 
 ## Usage
 
-Currently requires writing a unit test as you progress through each puzzle. More fun ways can be added in the future. 🧶
+There's a few ways to use Helple:
+
+1. CLI via `cargo run`
+2. Unit tests via `cargo test`
+3. Chrome extension in development mode
+## Development
+
+### Chrome extension 
+
+* `cargo install wasm-pack`
+* `make build`
+* Load `extension` folder using Chrome in development mode

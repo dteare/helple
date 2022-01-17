@@ -1,0 +1,22 @@
+{
+  "name": "Helple",
+  "description": "Automatically solves Wordle puzzles.",
+  "version": "1.0",
+  "manifest_version": 3,
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://www.powerlanguage.co.uk/wordle/"],
+      "js": ["content.js", "glue-helpers.js"]
+    }
+  ],
+
+  "web_accessible_resources": [{
+    "resources": ["helple_bg.wasm"],
+    "matches": ["https://www.powerlanguage.co.uk/*"]
+  }]
+}
