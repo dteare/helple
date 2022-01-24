@@ -1,5 +1,5 @@
-use wasm_bindgen::prelude::*;
 use unicode_segmentation::UnicodeSegmentation;
+use wasm_bindgen::prelude::*;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -23,7 +23,7 @@ struct Puzzle {
     dictionary: Vec<String>,
 }
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Debug, Deserialize)]
 struct JsPuzzleState {
@@ -32,7 +32,7 @@ struct JsPuzzleState {
 
 #[derive(Serialize, Debug, Deserialize)]
 struct JsPuzzleGuess {
-    word: String, 
+    word: String,
     results: String,
 }
 
@@ -100,7 +100,7 @@ impl Puzzle {
     }
 
     fn is_permitted_word(&self, word: &String) -> bool {
-        let debug = false; // *word == "CRONK".to_string();
+        let debug = false; // *word == "KNOLL".to_string();
         for a in &self.assignments {
             if debug {
                 println!("Looking at rule {:?}", a);
@@ -108,8 +108,11 @@ impl Puzzle {
             let pass = match a.status {
                 LetterStatus::Correct => word.as_bytes()[a.position] == a.letter as u8,
                 LetterStatus::WrongSpot => {
+                    let result =
+                        word.contains(a.letter) && word.as_bytes()[a.position] != a.letter as u8;
+
                     if debug {
-                        println!("   DEBUGGING LetterStatus::WrongSpot  ");
+                        println!("WrongSpot returning {} because:", result);
                         println!(
                             " - word.contains({})? {}",
                             a.letter,
@@ -118,11 +121,17 @@ impl Puzzle {
                         println!(" - word[{}] = {}", a.position, word.as_bytes()[a.position]);
                         println!(" - a.letter={}", a.letter as u8);
                     }
-                    word.contains(a.letter) && word.as_bytes()[a.position] != a.letter as u8
+
+                    result
                 }
                 LetterStatus::NotInWord => {
                     if debug {
-                        println!("Word contains {}? {}", a.letter, !word.contains(a.letter));
+                        println!(
+                            "NotInWord: word contains {}? {}, so returning {}",
+                            a.letter,
+                            word.contains(a.letter),
+                            !word.contains(a.letter)
+                        );
                     }
                     !word.contains(a.letter)
                 }
@@ -204,9 +213,20 @@ impl Puzzle {
             };
 
             // Only add restrictions we aren't already aware of
-            if !self.assignments.contains(&a) {
-                self.assignments.push(a);
+            if self.assignments.contains(&a) {
+                continue;
             }
+
+            // Avoid adding "Not In Word" for letters that are already assigned in a correct place. Wordle reports "Not In Word" in this situation to help you determine that a letter is not repeated.
+            if self
+                .assignments
+                .iter()
+                .any(|needle| needle.letter == a.letter && needle.status == LetterStatus::Correct)
+            {
+                continue;
+            }
+
+            self.assignments.push(a);
         }
 
         self.guesses.push((word.to_string(), letter_statuses));
@@ -273,7 +293,7 @@ pub fn perform_next_guess() {
             console_log(format!("@perform_next_guess with current state: {:?}", state).as_str());
 
             let mut puzzle = Puzzle::setup();
-        
+
             for guess in state.guesses {
                 // console_log(format!("assigning guess {:?}", guess).as_str());
                 puzzle.assign_guess_from_cli(guess.word.to_uppercase(), guess.results.as_str());
@@ -284,17 +304,22 @@ pub fn perform_next_guess() {
                 Some(word) => perform_guess(word.to_lowercase().as_str()),
                 None => console_log("No guess available"),
             };
-        },
+        }
         Err(err) => {
-            console_log(format!("@perform_next_guess failed to deserialize incoming state: {:?}", err).as_str());
+            console_log(
+                format!(
+                    "@perform_next_guess failed to deserialize incoming state: {:?}",
+                    err
+                )
+                .as_str(),
+            );
         }
     }
 }
 
-
 #[wasm_bindgen]
 pub fn run() -> String {
-//    console_log("Hello from Rust run!");
+    //    console_log("Hello from Rust run!");
 
     let puzzle = Puzzle::setup();
 
@@ -464,5 +489,56 @@ mod test {
 
         assert_eq!(Some("TANGY".to_string()), suggestion);
         assert_eq!(puzzle.solution(), Some("TANGY".to_string()));
+    }
+
+    #[test]
+    fn quirky_not_in_word() {
+        let mut puzzle = super::Puzzle::setup();
+
+        puzzle.assign_guess_results(
+            "SOARE".to_string(),
+            vec![
+                LetterStatus::NotInWord,
+                LetterStatus::WrongSpot,
+                LetterStatus::NotInWord,
+                LetterStatus::NotInWord,
+                LetterStatus::NotInWord,
+            ],
+        );
+        puzzle.assign_guess_results(
+            "CLOUD".to_string(),
+            vec![
+                LetterStatus::NotInWord,
+                LetterStatus::WrongSpot,
+                LetterStatus::Correct,
+                LetterStatus::NotInWord,
+                LetterStatus::NotInWord,
+            ],
+        );
+        puzzle.assign_guess_results(
+            "YMOLT".to_string(),
+            vec![
+                LetterStatus::NotInWord,
+                LetterStatus::NotInWord,
+                LetterStatus::Correct,
+                LetterStatus::Correct,
+                LetterStatus::NotInWord,
+            ],
+        );
+
+        // Notice Wordle said NotInWord for the leading `O` even though the answer in KNOLL.
+        puzzle.assign_guess_results(
+            "OVOLI".to_string(),
+            vec![
+                LetterStatus::NotInWord,
+                LetterStatus::NotInWord,
+                LetterStatus::Correct,
+                LetterStatus::Correct,
+                LetterStatus::NotInWord,
+            ],
+        );
+
+        let suggestion = puzzle.suggest_word();
+        assert_eq!(Some("KNOLL".to_string()), suggestion);
     }
 }
